@@ -3,16 +3,30 @@ sys.path.append('core')
 
 import argparse
 import os
-import cv2
+# import cv2
 import glob
 import numpy as np
 import torch
 from PIL import Image
+from datetime import datetime
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from torch.utils.tensorboard import SummaryWriter
+import torchvision
 
 from raft import RAFT
 from utils import flow_viz
 from utils.utils import InputPadder
 
+
+from sagemaker.interactive_apps import tensorboard
+
+region = "us-east-2"
+app = tensorboard.TensorBoardApp(region)
+
+app.get_app_url(
+    training_job_name="goo" # Optional. Specify the job name to track a specific training job 
+)
 
 
 DEVICE = 'cuda'
@@ -35,8 +49,27 @@ def viz(img, flo):
     # plt.imshow(img_flo / 255.0)
     # plt.show()
 
-    cv2.imshow('image', img_flo[:, :, [2,1,0]]/255.0)
-    cv2.waitKey()
+    # cv2.imshow('image', img_flo[:, :, [2,1,0]]/255.0)
+    # cv2.waitKey()
+    img_flo2 = tf.expand_dims(img_flo, axis=0) 
+    # print(img_flo2.shape)
+    # print(type(img_flo2))
+    
+    # plt.imshow(img_flo / 255.0)
+    # plt.show()
+
+
+    logdir = "logs/train_data/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+    
+    # tensorboard_logger = SummaryWriter(logdir)
+    # tensorboard_logger.add_image('Segmentation (Ground Truth)', 
+    #                      img_flo / 255.0)
+
+    # Creates a file writer for the log directory.
+    file_writer = tf.summary.create_file_writer(logdir)
+    # Using the file writer, log the reshaped image.
+    with file_writer.as_default():
+        tf.summary.image("Training data", img_flo2 / 255.0, step=0)
 
 
 def demo(args):
