@@ -177,6 +177,7 @@ def train(args):
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
             
             scaler.step(optimizer)
+            
             scheduler.step()
             scaler.update()
 

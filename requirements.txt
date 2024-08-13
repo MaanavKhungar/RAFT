@@ -1,0 +1,9 @@
+torch
+torchvision
+cuda-python
+opencv-python
+tensorboard
+scipy
+matplotlib
+torch-tb-profiler
+tensorflow
