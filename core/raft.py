@@ -83,62 +83,62 @@ class RAFT(nn.Module):
         return up_flow.reshape(N, 2, 8*H, 8*W)
 
 
-    def forward(self, image1, image2, iters=12, flow_init=None, upsample=True, test_mode=False):
-        """ Estimate optical flow between pair of frames """
+    def forward(self, image1, image2, noisy_target, timesteps ,iters=12, flow_init=None, upsample=True, test_mode=False):
+            """ Estimate optical flow between pair of frames """
 
-        image1 = 2 * (image1 / 255.0) - 1.0
-        image2 = 2 * (image2 / 255.0) - 1.0
+            image1 = 2 * (image1 / 255.0) - 1.0
+            image2 = 2 * (image2 / 255.0) - 1.0
 
-        image1 = image1.contiguous()
-        image2 = image2.contiguous()
+            image1 = image1.contiguous()
+            image2 = image2.contiguous()
 
-        hdim = self.hidden_dim
-        cdim = self.context_dim
+            hdim = self.hidden_dim
+            cdim = self.context_dim
 
-        # run the feature network
-        with autocast(enabled=self.args.mixed_precision):
-            fmap1, fmap2 = self.fnet([image1, image2])        
-        
-        fmap1 = fmap1.float()
-        fmap2 = fmap2.float()
-        if self.args.alternate_corr:
-            corr_fn = AlternateCorrBlock(fmap1, fmap2, radius=self.args.corr_radius)
-        else:
-            corr_fn = CorrBlock(fmap1, fmap2, radius=self.args.corr_radius)
-
-        # run the context network
-        with autocast(enabled=self.args.mixed_precision):
-            cnet = self.cnet(image1)
-            net, inp = torch.split(cnet, [hdim, cdim], dim=1)
-            net = torch.tanh(net)
-            inp = torch.relu(inp)
-
-        coords0, coords1 = self.initialize_flow(image1)
-
-        if flow_init is not None:
-            coords1 = coords1 + flow_init
-
-        flow_predictions = []
-        for itr in range(iters):
-            coords1 = coords1.detach()
-            corr = corr_fn(coords1) # index correlation volume
-
-            flow = coords1 - coords0
+            # run the feature network
             with autocast(enabled=self.args.mixed_precision):
-                net, up_mask, delta_flow = self.update_block(net, inp, corr, flow)
-
-            # F(t+1) = F(t) + \Delta(t)
-            coords1 = coords1 + delta_flow
-
-            # upsample predictions
-            if up_mask is None:
-                flow_up = upflow8(coords1 - coords0)
+                fmap1, fmap2 = self.fnet([image1, image2])        
+            
+            fmap1 = fmap1.float()
+            fmap2 = fmap2.float()
+            if self.args.alternate_corr:
+                corr_fn = AlternateCorrBlock(fmap1, fmap2, radius=self.args.corr_radius)
             else:
-                flow_up = self.upsample_flow(coords1 - coords0, up_mask)
-            
-            flow_predictions.append(flow_up)
+                corr_fn = CorrBlock(fmap1, fmap2, radius=self.args.corr_radius)
 
-        if test_mode:
-            return coords1 - coords0, flow_up
-            
-        return flow_predictions
+            # run the context network
+            with autocast(enabled=self.args.mixed_precision):
+                cnet = self.cnet(image1)
+                net, inp = torch.split(cnet, [hdim, cdim], dim=1)
+                net = torch.tanh(net)
+                inp = torch.relu(inp)
+
+            coords0, coords1 = self.initialize_flow(image1)
+
+            if flow_init is not None:
+                coords1 = coords1 + flow_init
+
+            flow_predictions = []
+            for itr in range(iters):
+                coords1 = coords1.detach()
+                corr = corr_fn(coords1) # index correlation volume
+
+                flow = coords1 - coords0
+                with autocast(enabled=self.args.mixed_precision):
+                    net, up_mask, delta_flow = self.update_block(net, inp, corr, flow, timesteps, noisy_target)#update args add time
+
+                # F(t+1) = F(t) + \Delta(t)
+                coords1 = coords1 + delta_flow
+
+                # upsample predictions
+                if up_mask is None:
+                    flow_up = upflow8(coords1 - coords0)
+                else:
+                    flow_up = self.upsample_flow(coords1 - coords0, up_mask)
+                
+                flow_predictions.append(flow_up)
+
+            if test_mode:
+                return coords1 - coords0, flow_up
+                
+            return flow_predictions

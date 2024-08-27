@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from diffusion.diffusion import Diffusion
+from ddvm_diffusion import RAFT_Unet
 
 
 class FlowHead(nn.Module):
@@ -129,6 +131,56 @@ class BasicUpdateBlock(nn.Module):
         inp = torch.cat([inp, motion_features], dim=1)
 
         net = self.gru(net, inp)
+        delta_flow = self.flow_head(net)
+
+        # scale mask to balence gradients
+        mask = .25 * self.mask(net)
+        return net, mask, delta_flow
+
+
+class BasicUpdateBlockDiffusion(nn.Module):
+    def __init__(self, args, hidden_dim=128, input_dim=128):
+        super(BasicUpdateBlock, self).__init__()
+        self.args = args
+        self.encoder = BasicMotionEncoder(args)
+        self.diffusor = Diffusion()
+        self.flow_head = FlowHead(hidden_dim, hidden_dim=256)
+
+        self.mask = nn.Sequential(
+            nn.Conv2d(128, 256, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 64*9, 1, padding=0))
+
+    def forward(self, net, inp, corr, flow, time_embedding, noisy_target ,upsample=True):
+        motion_features = self.encoder(flow, corr)
+        inp = torch.cat([inp, motion_features], dim=1)
+
+        net = self.diffusor(noisy_target, net ,time_embedding ) #(model_input, context, time_embedding)
+        delta_flow = self.flow_head(net)
+
+        # scale mask to balence gradients
+        mask = .25 * self.mask(net)
+        return net, mask, delta_flow
+
+
+class BasicUpdateBlockDDVM(nn.Module):
+    def __init__(self, args, hidden_dim=128, input_dim=128):
+        super(BasicUpdateBlock, self).__init__()
+        self.args = args
+        self.encoder = BasicMotionEncoder(args)
+        self.unet = RAFT_Unet(128+hidden_dim, hidden_dim)
+        self.flow_head = FlowHead(hidden_dim, hidden_dim=256)
+
+        self.mask = nn.Sequential(
+            nn.Conv2d(128, 256, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 64*9, 1, padding=0))
+
+    def forward(self, net, inp, corr, flow, time_embedding, noisy_target ,upsample=True):
+        motion_features = self.encoder(flow, corr)
+        inp = torch.cat([inp, motion_features], dim=1)
+
+        net = self.unet(net, inp, time_embedding)
         delta_flow = self.flow_head(net)
 
         # scale mask to balence gradients

@@ -7,3 +7,4 @@ scipy
 matplotlib
 torch-tb-profiler
 tensorflow
+diffusers["torch"]
